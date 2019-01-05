@@ -1,5 +1,9 @@
 # Unity-FileSync
-Synchronize files from outside your Unity project. Useful for models, images, or other assets you might save in external directories that need to be copied into your project. This will copy those files for you. Configuration includes multiple directories, and file-type exclusions if you wish to export with the maser files but don't wish to include the master file in the project.
+Synchronize files from outside your Unity project. Useful for models, images, or other assets you might save in external directories that need to be copied into your project. This will copy those files for you. Configuration includes multiple directories, and file-type exclusions if you wish to export with the master files but don't wish to include the master file in the project.
+
+Auto-sync can be turned off. It compares hashes from the input files every second.
+
+If auto-sync is disabled, activate through: Sync > Force Sync
 
 ## Installation
 Include the Editor folder with AutoSync.cs somewhere in your Assets.
