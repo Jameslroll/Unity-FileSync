@@ -128,6 +128,11 @@ public class FileSync
 
 		List<string> files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories).Where(predicate => IsPathValid(predicate, path.Length + 1)).OrderBy(predicate => predicate).ToList();
 
+		if (files.Count == 0)
+		{
+			return "";
+		}
+
 		MD5 md5 = MD5.Create();
 
 		for(int i = 0; i < files.Count; i++)
