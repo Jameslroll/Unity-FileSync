@@ -4,86 +4,129 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
 
 public class FileSync
 {
-	/* Constants */
-	private const bool autoSyncEnabled = true;
+	#region Private Structs
 
-	private static readonly SyncPath[] syncs = new SyncPath[]
-		{
-			new SyncPath()
-			{
-				input = "C:/Users/<User>/Pictures",
-				output = "/Textures/",
-			},
-
-			new SyncPath()
-			{
-				input = "C:/Users/<User>/Documents/Blender",
-				output = "/Models/",
-			},
-		};
-
-	private static readonly string[] exclusions = new string[]
-		{
-			"blend",
-			"max",
-			"psd",
-			"pdd",
-			"raw",
-			"tmp",
-		};
-
-	/* Structures: Private */
 	private struct SyncPath
 	{
+		#region Public Fields
+
 		public string input;
 		public string output;
+
+		#endregion
 	}
 
-	/* Fields: Private */
+	#endregion
+
+	#region Private Fields
+
+	private const bool autoSyncEnabled = true; // Enable auto-sync?
+
+	private static readonly SyncPath[] syncs = new SyncPath[]
+	{
+		// Input: absolute path, relative to Application.dataPath when starting with a forward-slash.
+		// Output: always relative to Application.dataPath.
+
+		new SyncPath()
+		{
+			input = "/.Pictures/",
+			output = "/Textures/"
+		},
+		
+		// Examples.
+		/*
+		new SyncPath()
+		{
+			input = "C:/Users/<User>/Pictures/",
+			output = "/Textures/",
+		},
+
+		new SyncPath()
+		{
+			input = "C:/Users/<User>/Documents/Blender/",
+			output = "/Models/"
+		},
+
+		new SyncPath()
+		{
+			input = "/.Models/",
+			output = "/Models/"
+		},
+		*/
+	};
+
+	// Excluded files to import using regular expressions.
+	private static readonly string[] exclusions = new string[]
+	{
+		@".\.blend.*$",
+		@".\.max$",
+		@".\.psd$",
+		@".\.pdd$",
+		@".\.raw$",
+		@".\.tmp$",
+		@".\.xcf$",
+		@".\.afphoto$",
+		@".\/\.",
+	};
+
+	private static int dataPathLength;
 	private static double lastAutoSync;
 	private static string[] cachedHashes;
-	
-	/* Methods: Private */
+
+	#endregion
+
+	#region Private Methods
+
 	[MenuItem("Sync/Force Sync")]
-	private static void Sync()
+	private static int Sync()
 	{
+		int updatedFiles = 0;
+
 		foreach (SyncPath sync in syncs)
 		{
-			if (string.IsNullOrEmpty(sync.input))
+			string input = GetPath(sync.input);
+			
+			if (string.IsNullOrEmpty(input))
 			{
 				continue;
 			}
 
-			List<string> files = Directory.GetFiles(sync.input, "*.*", SearchOption.AllDirectories).Where(predicate => IsPathValid(predicate, sync.input.Length + 1)).OrderBy(predicate => predicate).ToList();
-			
-			foreach (string file in files)
+			List<string> files = Directory.GetFiles(input, "*.*", SearchOption.AllDirectories).Where(predicate => IsPathValid(predicate)).OrderBy(predicate => predicate).ToList();
+
+			for (int fileIndex = 0; fileIndex < files.Count; fileIndex++)
 			{
-				string relativePath = file.Substring(sync.input.Length + 1);
-				string output = Application.dataPath + sync.output + relativePath;
+				string filePath = files[fileIndex].Replace('\\', '/');
+				string file = filePath.Substring(input.Length);
+				string output = Application.dataPath + sync.output + file;
 				string outputDirectory = output.Substring(0, Math.Max(output.LastIndexOf('/'), output.LastIndexOf('\\')));
-				
+
 				if (!Directory.Exists(outputDirectory))
 				{
 					Directory.CreateDirectory(outputDirectory);
 				}
-				
-				File.Copy(file, output, true);
+
+				File.Copy(filePath, output, true);
+				updatedFiles++;
 			}
 		}
 
 		AssetDatabase.Refresh();
+
+		return updatedFiles;
 	}
-	
+
 	[InitializeOnLoadMethod]
 	private static void Initialize()
 	{
 		if (autoSyncEnabled)
 		{
+			dataPathLength = Application.dataPath.Length;
 			cachedHashes = new string[syncs.Length];
 
 			EditorApplication.update += AutoSync;
@@ -93,17 +136,17 @@ public class FileSync
 	private static void AutoSync()
 	{
 		if (Application.isPlaying) { return; }
-		if (EditorApplication.timeSinceStartup - lastAutoSync <= 1f) { return; }
-		
+		if (EditorApplication.timeSinceStartup - lastAutoSync <= 5f) { return; }
+
 		lastAutoSync = EditorApplication.timeSinceStartup;
-		
+
 		bool shouldSync = false;
 
 		for (int pathIndex = 0; pathIndex < cachedHashes.Length; pathIndex++)
 		{
 			string hash = GetHash(syncs[pathIndex].input);
 
-			if (cachedHashes[pathIndex] !=  hash)
+			if (cachedHashes[pathIndex] != hash)
 			{
 				shouldSync = true;
 			}
@@ -113,20 +156,20 @@ public class FileSync
 
 		if (shouldSync)
 		{
-			Sync();
-
-			Debug.Log("Auto-Synced");
+			Debug.Log($"Synchronized {Sync()} files!");
 		}
 	}
 
 	private static string GetHash(string path)
 	{
+		path = GetPath(path);
+
 		if (string.IsNullOrEmpty(path))
 		{
 			return "";
 		}
 
-		List<string> files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories).Where(predicate => IsPathValid(predicate, path.Length + 1)).OrderBy(predicate => predicate).ToList();
+		List<string> files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories).Where(predicate => IsPathValid(predicate)).OrderBy(predicate => predicate).ToList();
 
 		if (files.Count == 0)
 		{
@@ -135,10 +178,10 @@ public class FileSync
 
 		MD5 md5 = MD5.Create();
 
-		for(int i = 0; i < files.Count; i++)
+		for (int i = 0; i < files.Count; i++)
 		{
 			string file = files[i];
-			
+
 			string relativePath = file.Substring(path.Length + 1);
 			byte[] pathBytes = Encoding.UTF8.GetBytes(relativePath.ToLower());
 			byte[] contentBytes = File.ReadAllBytes(file);
@@ -158,16 +201,31 @@ public class FileSync
 		return BitConverter.ToString(md5.Hash).Replace("-", "").ToLower();
 	}
 
-	private static bool IsPathValid(string path, int directoryLength = 0)
+	private static string GetPath(string path)
 	{
-		string extension = path.Substring(path.LastIndexOf('.') + 1);
+		if (string.IsNullOrEmpty(path))
+		{
+			return path;
+		}
 
-		if (exclusions.Contains(extension))
+		if (path[0] == '/')
+		{
+			return Application.dataPath + path;
+		}
+
+		return path;
+	}
+
+	private static bool IsPathValid(string path)
+	{
+		path = path.Replace('\\', '/');
+		string relativePath = path.Substring(dataPathLength);
+
+		if (Array.Exists(exclusions, exclusion => Regex.IsMatch(relativePath, exclusion)))
 		{
 			return false;
 		}
 
-		string relativePath = path.Substring(directoryLength);
 		char[] relativeChars = relativePath.ToCharArray();
 		char lastChar = '/';
 
@@ -183,4 +241,6 @@ public class FileSync
 
 		return true;
 	}
+
+	#endregion
 }
